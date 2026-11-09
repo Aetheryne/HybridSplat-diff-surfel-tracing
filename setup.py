@@ -1,5 +1,7 @@
 import os
-import site
+import shutil
+import subprocess
+from pathlib import Path
 from setuptools import setup
 from torch.utils.cpp_extension import CUDAExtension, BuildExtension
 
@@ -24,27 +26,35 @@ class CustomBuildExtension(BuildExtension):
 
     def build_extensions(self):
         # Record the python package source directory
-        pkg_source = os.path.dirname(os.path.abspath(__file__))
+        pkg_source = Path(__file__).resolve().parent
 
         # Run the original build_extensions
         super().build_extensions()
 
-        # Use CMake to build the OptiX tracing kernel ptx files
-        os.system(f'mkdir -p {pkg_source}/build && cd {pkg_source}/build && cmake .. && make')
-        pkg_target = site.getsitepackages()[0] + '/diff_surfel_tracing'
+        # Propagate CMake failures instead of reporting an incomplete install.
+        cmake_build = Path(self.build_temp).resolve() / 'optix'
+        subprocess.run([
+            'cmake', '-S', str(pkg_source), '-B', str(cmake_build),
+            f'-DOPTIX_HOME={Path(OPTIX_HOME).parent}',
+        ], check=True)
+        subprocess.run(['cmake', '--build', str(cmake_build)], check=True)
 
-        # Create the target directory if it does not exist
-        if not os.path.exists(pkg_target):
-            os.makedirs(pkg_target, exist_ok=True)
-
-        # Copy the `.ptx` files to the python package
-        os.system(f'cp {pkg_source}/build/ptx/*.ptx {pkg_target}')
+        # Put runtime kernels in the build output so they are included in the
+        # wheel, rather than writing directly into the build user's site-packages.
+        pkg_target = Path(self.get_ext_fullpath('diff_surfel_tracing._C')).parent
+        pkg_target.mkdir(parents=True, exist_ok=True)
+        for name in ('forward.ptx', 'backward.ptx'):
+            kernel = cmake_build / 'ptx' / name
+            if not kernel.is_file() or kernel.stat().st_size == 0:
+                raise RuntimeError(f'OptiX build did not produce {kernel}')
+            shutil.copy2(kernel, pkg_target / name)
 
 
 # Setup for the python package
 setup(
     name="diff_surfel_tracing",
     packages=['diff_surfel_tracing'],
+    package_data={'diff_surfel_tracing': ['*.ptx']},
     version='0.0.1',
     ext_modules=[
         CUDAExtension(

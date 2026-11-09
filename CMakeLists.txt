@@ -43,20 +43,17 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CUDA_STANDARD 17)
 
-find_package(Python3 REQUIRED COMPONENTS Development)
 # We use this to be able to link against CUDA::cudart and/or CUDA::cuda_driver
 find_package(CUDAToolkit REQUIRED)
 # Make sure we have access to Optix7
 find_package(OptiX7 REQUIRED)
-# Make sure we have access to Torch
-find_package(Torch REQUIRED)
+# Python/Torch are compiled and linked by setup.py's CUDAExtension. The PTX
+# kernels built here only include CUDA/OptiX headers and local device headers.
 
 # Utility function to get PTX compilation & copying working
 include(PTXUtilities)
 
 # For third party headers
-include_directories(${Python3_INCLUDE_DIRS})
-include_directories(${TORCH_INCLUDE_DIRS})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/third_party/glm)
 include_directories(${OptiX7_INCLUDE_DIRS})
 
